@@ -92,3 +92,15 @@ func (b *Block) Serialize() []byte {
 	}
 	return buffer.Bytes()
 }
+
+func Deserilize(data []byte) *Block {
+	//fmt.Println("接码传入的数据:%v", data)
+	var block Block
+
+	decoder := gob.NewDecoder(bytes.NewReader(data))
+	err := decoder.Decode(&block)
+	if err != nil {
+		fmt.Println("decode err", err)
+	}
+	return &block
+}
