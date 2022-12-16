@@ -58,7 +58,7 @@ func (pow *ProofOfWork) Run() ([]byte, uint64) {
 func (pow *ProofOfWork) prepareData(nonce uint64) []byte {
 	var b = pow.block
 	//b.Nonce = nonce
-	res := bytes.Join([][]byte{b.Data, b.PrevBlockHash,
+	res := bytes.Join([][]byte{ /*b.Data,*/ b.PrevBlockHash,
 		utils.UintToByte(b.Version),
 		b.MerkleRoot,
 		utils.UintToByte(b.TimeStamp),

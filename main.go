@@ -9,7 +9,7 @@ func main() {
 
 	//fmt.Println("hello world")
 
-	bc := block.NewBlockChain()
+	bc := block.NewBlockChain("abcdefg")
 	cli := cmds.CLI{BC: bc}
 	cli.Run()
 	////bc.AddBlock("1234")

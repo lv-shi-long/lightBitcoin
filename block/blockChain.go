@@ -3,6 +3,7 @@ package block
 import (
 	"fmt"
 	"github.com/boltdb/bolt"
+	"github.com/lightBitcoin/transaction"
 )
 
 type BlockChain struct {
@@ -17,7 +18,7 @@ const (
 	TailBlockHash = "lastBlockHash"
 )
 
-func NewBlockChain() *BlockChain {
+func NewBlockChain(miner string) *BlockChain {
 	db, err := bolt.Open(BlockDBName, 0666, nil)
 	if err != nil {
 		fmt.Println("open db err")
@@ -35,7 +36,8 @@ func NewBlockChain() *BlockChain {
 				return err
 			}
 
-			genisisBlock := NewBlock("this is first block", []byte{0x00})
+			coinbase := transaction.NewCoinBase(miner)
+			genisisBlock := NewBlock([]*transaction.Transaction{coinbase}, []byte{0x00})
 			bucket.Put(genisisBlock.Hash, genisisBlock.Serialize())
 			bucket.Put([]byte("lastBlockHash"), genisisBlock.Hash)
 
@@ -55,7 +57,7 @@ func NewBlockChain() *BlockChain {
 	}
 }
 
-func (bc *BlockChain) AddBlock(data string) {
+func (bc *BlockChain) AddBlock(txs []*transaction.Transaction) {
 	// 上一个区块的HASH 就是 当前区块的 prevHash
 	bc.db.Update(func(tx *bolt.Tx) error {
 		b1 := tx.Bucket([]byte(BlockBucket))
@@ -63,7 +65,7 @@ func (bc *BlockChain) AddBlock(data string) {
 			fmt.Println("bucket not exist should not be resonable, can not add block when genisis block not redady")
 		} else {
 			// 内存中创建一个新的区块，将其插入数据库，更新 尾区块的hash 值和 tail的值
-			block := NewBlock(data, bc.tail)
+			block := NewBlock(txs, bc.tail)
 			b1.Put(block.Hash, block.Serialize())
 			b1.Put([]byte(TailBlockHash), block.Hash)
 			bc.tail = block.Hash
@@ -77,4 +79,104 @@ func (bc *BlockChain) Close() {
 	bc.tail = nil
 }
 
-//func
+// 查找所有UTXO 。并且 返回所有的utxo 集合
+func (bc *BlockChain) FindUtxos(addres string) []transaction.TXOutput {
+	utxos := []transaction.TXOutput{}
+	it := bc.NewBlockChainIterator()
+	spentutxos := make(map[string][]int64)
+	for {
+		block := it.Next()
+		if block == nil {
+			fmt.Println("遍历结束")
+			break
+		}
+
+		for _, tx := range block.Transactions {
+			// 遍历所有的 交易输入
+			for _, input := range tx.TXInputs {
+				if input.Addres == addres {
+					key := string(input.TXID)
+					spentutxos[key] = append(spentutxos[key], input.Index)
+				}
+			}
+
+			// 遍历所有的 交易输出
+		OUTPUT:
+			for i, output := range tx.TXOutputs {
+				indexes := spentutxos[string(tx.TXID)]
+				if len(indexes) != 0 {
+					for _, j := range indexes {
+						if int64(i) == j {
+							// 说明 该笔交易的 Output中的 第i 笔 output，曾经作为某笔交易的 第j笔输入了，说明
+							//  已经花出去了。
+							continue OUTPUT
+						}
+					}
+				}
+				if addres == output.Addres {
+					utxos = append(utxos, output)
+				}
+			}
+		}
+	}
+	return utxos
+}
+
+func (bc *BlockChain) GetBalance(addres string) float64 {
+	utxos := bc.FindUtxos(addres)
+	var total float64
+	for _, v := range utxos {
+		total += v.Value
+	}
+	fmt.Printf("%s 的余额为%f\n", addres, total)
+	return total
+}
+
+func NewTransaction(from, to string, amount float64, bc *BlockChain) *transaction.Transaction {
+
+	var utxos map[string][]int64
+	var resValue float64
+
+	utxos, resValue = bc.FindNeedUtxos(from, amount)
+	if resValue < amount {
+		fmt.Println("there is no enough money in from, new transaction failed")
+		return nil
+	}
+
+	inputs := []transaction.TXInput{}
+	outputs := []transaction.TXOutput{}
+	// 创建一个交易，把找到的所有符合 要求的 input 包含进来。
+	for txid, indexes := range utxos {
+		for _, transactionIndex := range indexes {
+			input := transaction.TXInput{
+				TXID:   []byte(txid),
+				Index:  transactionIndex,
+				Addres: to,
+			}
+			inputs = append(inputs, input)
+		}
+	}
+
+	// 创建输出，把钱转给 to 。
+	output1 := transaction.TXOutput{
+		Value:  amount,
+		Addres: to,
+	}
+	outputs = append(outputs, output1)
+
+	// 找到的输入 大于要转钱，将钱转回 付款人。找零
+	if resValue-amount > 0.0 {
+		output2 := transaction.TXOutput{
+			Value:  resValue - amount,
+			Addres: from,
+		}
+		outputs = append(outputs, output2)
+	}
+
+	var transaction = transaction.Transaction{
+		TXInputs:  inputs,
+		TXOutputs: outputs,
+	}
+	transaction.SetTransactionID()
+	return &transaction
+}

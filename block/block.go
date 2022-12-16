@@ -5,7 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/gob"
 	"fmt"
-
+	"github.com/lightBitcoin/transaction"
 	"github.com/lightBitcoin/utils"
 	"time"
 )
@@ -24,21 +24,22 @@ type Block struct {
 
 	Nonce uint64 //  挖矿寻找的值
 
-	Data []byte // 包含 交易的数据
+	//Data []byte // 包含 交易的数据
+	Transactions []*transaction.Transaction
 
 	Hash []byte // 当前区块的HASH 为了方便就写入当前区块
 
 }
 
-func NewBlock(data string, prevHash []byte) *Block {
+func NewBlock(txs []*transaction.Transaction, prevHash []byte) *Block {
 	block := &Block{
 		Version:       0,
 		PrevBlockHash: prevHash,
 		MerkleRoot:    []byte{},
 		TimeStamp:     uint64(time.Now().Unix()),
 		Difficulty:    10,
-		//Nonce:         10, 去掉默认的 nonce 值
-		Data: []byte(data),
+		Nonce:         10, // 去掉默认的 nonce 值
+		Transactions:  txs,
 	}
 	//block.SelfHash()
 	pow := NewProofOfWork(block)
@@ -59,7 +60,7 @@ func (b *Block) SelfHash() {
 	//data = append(data, utils.UintToByte(b.TimeStamp)...)
 	//data = append(data, utils.UintToByte(b.Nonce)...)
 
-	joinData := bytes.Join([][]byte{b.Data, b.PrevBlockHash,
+	joinData := bytes.Join([][]byte{b.PrevBlockHash,
 		utils.UintToByte(b.Version),
 		b.MerkleRoot,
 		utils.UintToByte(b.TimeStamp),
@@ -79,7 +80,7 @@ func (b *Block) Print() {
 	fmt.Printf("Nonce: %d\n", b.Nonce)
 	fmt.Printf("hash: %x\n", b.Hash)
 	fmt.Printf("prevHash: %x\n", b.PrevBlockHash)
-	fmt.Printf("data: %s\n", b.Data)
+	//fmt.Printf("data: %s\n", b.Data)
 }
 
 func (b *Block) Serialize() []byte {
@@ -103,4 +104,56 @@ func Deserilize(data []byte) *Block {
 		fmt.Println("decode err", err)
 	}
 	return &block
+}
+
+// 通过交易的ID 计算 梅卡尔树的 根哈希。
+func (block *Block) HashTransaction() {
+	// 树为空或者 长度为 0特殊处理。
+	if block.Transactions == nil || len(block.Transactions) == 0 {
+		sha256 := sha256.Sum256([]byte{})
+		block.MerkleRoot = sha256[:]
+		return
+	}
+	var tree [][]byte
+	for _, v := range block.Transactions {
+		// 把叶节点的 sha256 放到树中。
+		leafSum := sha256.Sum256(v.TXID)
+		tree = append(tree, leafSum[:])
+	}
+	index := 0
+	pivot := 0
+	for {
+		//  双指针 归并梅卡尔书的哈希 技术
+		if len(tree) <= 1 {
+			break
+		}
+		// 说明两两归并 时，右指针已经到达了边界。 进行新一轮的 归并
+		if index >= len(tree) {
+			tree = tree[:pivot]
+			index = 0
+			pivot = 0
+			continue
+		}
+		left := tree[index]
+		right := []byte{}
+		if index+1 >= len(tree) {
+			// 说明交易数目是奇数，右边的 byte 用空来代替。
+			//right = []byte{}
+			sum256 := sha256.Sum256(left)
+			tree[pivot] = sum256[:]
+			tree = tree[:pivot+1]
+			pivot = 0
+			index = 0
+			continue
+		} else {
+			right = tree[index+1]
+		}
+		left = append(left, right...)
+		sum256 := sha256.Sum256(left)
+
+		tree[pivot] = sum256[:]
+		index += 2
+		pivot += 1
+	}
+	block.MerkleRoot = tree[0]
 }
