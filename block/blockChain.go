@@ -36,7 +36,7 @@ func NewBlockChain(miner string) *BlockChain {
 				return err
 			}
 
-			coinbase := transaction.NewCoinBase(miner)
+			coinbase := transaction.NewCoinBase(miner, "i-love-china")
 			genisisBlock := NewBlock([]*transaction.Transaction{coinbase}, []byte{0x00})
 			bucket.Put(genisisBlock.Hash, genisisBlock.Serialize())
 			bucket.Put([]byte("lastBlockHash"), genisisBlock.Hash)
@@ -80,8 +80,10 @@ func (bc *BlockChain) Close() {
 }
 
 // 查找所有UTXO 。并且 返回所有的utxo 集合
-func (bc *BlockChain) FindUtxos(addres string) []transaction.TXOutput {
-	utxos := []transaction.TXOutput{}
+func (bc *BlockChain) FindUtxos(addres string) []transaction.UTXOInfo {
+
+	var utxoInfos []transaction.UTXOInfo
+	//utxos := []transaction.TXOutput{}
 	it := bc.NewBlockChainIterator()
 	spentutxos := make(map[string][]int64)
 	for {
@@ -114,19 +116,21 @@ func (bc *BlockChain) FindUtxos(addres string) []transaction.TXOutput {
 					}
 				}
 				if addres == output.Addres {
-					utxos = append(utxos, output)
+					//utxos = append(utxos, output)
+					utxoinfo := transaction.UTXOInfo{TXID: tx.TXID, Index: int64(i), Output: output}
+					utxoInfos = append(utxoInfos, utxoinfo)
 				}
 			}
 		}
 	}
-	return utxos
+	return utxoInfos
 }
 
 func (bc *BlockChain) GetBalance(addres string) float64 {
 	utxos := bc.FindUtxos(addres)
 	var total float64
 	for _, v := range utxos {
-		total += v.Value
+		total += v.Output.Value
 	}
 	fmt.Printf("%s 的余额为%f\n", addres, total)
 	return total
@@ -151,7 +155,7 @@ func NewTransaction(from, to string, amount float64, bc *BlockChain) *transactio
 			input := transaction.TXInput{
 				TXID:   []byte(txid),
 				Index:  transactionIndex,
-				Addres: to,
+				Addres: from,
 			}
 			inputs = append(inputs, input)
 		}
@@ -179,4 +183,59 @@ func NewTransaction(from, to string, amount float64, bc *BlockChain) *transactio
 	}
 	transaction.SetTransactionID()
 	return &transaction
+}
+
+func (bc *BlockChain) FindNeedUtxos(from string, amount float64) (map[string][]int64, float64) {
+	var needutxos = make(map[string][]int64)
+	var resValue float64
+
+	//  首先找到所有的 utxo 。
+	utxoinfos := bc.FindUtxos(from)
+	for _, utxoinfo := range utxoinfos {
+
+	}
+	it := bc.NewBlockChainIterator()
+	spentutxos := make(map[string][]int64)
+	for {
+		block := it.Next()
+		if block == nil {
+			fmt.Println("遍历结束")
+			break
+		}
+
+		for _, tx := range block.Transactions {
+			// 遍历所有的 交易输入
+			for _, input := range tx.TXInputs {
+				if input.Addres == from {
+					key := string(input.TXID)
+					spentutxos[key] = append(spentutxos[key], input.Index)
+				}
+			}
+
+			// 遍历所有的 交易输出
+		OUTPUT:
+			for i, output := range tx.TXOutputs {
+				indexes := spentutxos[string(tx.TXID)]
+				if len(indexes) != 0 {
+					for _, j := range indexes {
+						if int64(i) == j {
+							// 说明 该笔交易的 Output中的 第i 笔 output，曾经作为某笔交易的 第j笔输入了，说明
+							//  已经花出去了。
+							continue OUTPUT
+						}
+					}
+				}
+				// 走到这里说明钱还没被花出去。
+				if from == output.Addres {
+					needutxos[string(tx.TXID)] = append(needutxos[string(tx.TXID)], int64(i))
+					resValue += output.Value
+					if resValue >= amount {
+						fmt.Println("find  enogh money in utxo, stop find")
+						return needutxos, resValue
+					}
+				}
+			}
+		}
+	}
+	return needutxos, resValue
 }

@@ -34,12 +34,12 @@ func (tx *Transaction) SetTransactionID() {
 }
 
 // 挖矿交易，没有输入，只有输出，默认设置 12.5个比特币
-func NewCoinBase(miner string) *Transaction {
+func NewCoinBase(miner string, data string) *Transaction {
 
 	input := TXInput{
 		TXID:   nil,
 		Index:  -1,
-		Addres: miner + "dig out",
+		Addres: data + "dig out",
 	}
 	output := TXOutput{
 		Value:  12.5,

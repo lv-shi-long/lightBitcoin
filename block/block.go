@@ -41,7 +41,8 @@ func NewBlock(txs []*transaction.Transaction, prevHash []byte) *Block {
 		Nonce:         10, // 去掉默认的 nonce 值
 		Transactions:  txs,
 	}
-	//block.SelfHash()
+	// 把交易加进来之后，计算 HASH
+	block.HashTransaction()
 	pow := NewProofOfWork(block)
 	hash, nonce := pow.Run()
 	block.Nonce = nonce
@@ -80,6 +81,10 @@ func (b *Block) Print() {
 	fmt.Printf("Nonce: %d\n", b.Nonce)
 	fmt.Printf("hash: %x\n", b.Hash)
 	fmt.Printf("prevHash: %x\n", b.PrevBlockHash)
+	for _, v := range b.Transactions {
+		fmt.Printf("transactions :%v | ", *v)
+	}
+
 	//fmt.Printf("data: %s\n", b.Data)
 }
 
